@@ -1,5 +1,5 @@
 ---
-title: "Week02_Assignment"
+title: "data.table()"
 author: "John Reddy Peasari"
 date: "2/15/2021"
 output:
