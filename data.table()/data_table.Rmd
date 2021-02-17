@@ -1,0 +1,201 @@
+---
+title: "Using data.table()"
+author: "John Reddy Peasari"
+date: "2/15/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Setting the directory path and loading the data
+```{r}
+dir <- getwd()
+setwd(dir)
+```
+### Loading required packages
+```{r include=FALSE}
+library(data.table) 
+library(plyr)
+library(tidyr)
+library(tidyverse)
+```
+### Loadind the data files
+```{r}
+clinic <- fread("healthcare-data/Clinic.csv") 
+disease_map <- fread("healthcare-data/DiseaseMap.csv") 
+icd_codes <- fread("healthcare-data/ICDCodes.csv") 
+insurance_provider <- fread("healthcare-data/InsuranceProvider.csv") 
+mortality <- fread("healthcare-data/Mortality.csv") 
+outpatient_visit <- fread("healthcare-data/OutpatientVisit.csv") 
+patient <- fread("healthcare-data/Patient.csv") 
+patient_file <- fread("healthcare-data/PatientAnalyticFile.csv") 
+patient_insurance <- fread("healthcare-data/PatientInsurance.csv") 
+staff <- fread("healthcare-data/Staff.csv") 
+```
+### Question 1
+Are men more likely to die than women in this group of patients? Assume people
+without a date of death in the mortality table are still alive. 
+```{r}
+setkey(patient,PatientID)
+setkey(mortality,PatientID)
+merged <- mortality[patient]
+no_males <- nrow(merged[!is.na(DateOfDeath) & Gender=="male" ])
+no_females <- nrow(merged[!is.na(DateOfDeath) & Gender=="female" ])
+print(paste(no_males, "-> Total no of men died"))
+print(paste(no_females, "-> Total no of women died"))
+```
+It was observed that both men and women died in almost equal numbers. But,the women are more likely to die than men.
+
+
+### Question 2
+Are patterns in the disease groups across gender. For every patient with at least
+one outpatient visit, identify if they have been diagnosed with any of the 22
+conditions listed in the diseaseMap table at any time point. You will need to
+consider all three ICD columns in the outpatientVisit file (not just one). Create a
+table with the rate of disease for each condition for men, women, and all. It
+should look like this, where the XX% is the percent with the condition:
+```{r}
+## Combining Patient and OutpatientVisit tables using setkey()
+setkey(patient,PatientID) 
+setkey(outpatient_visit,PatientID)
+merged1 <- patient[outpatient_visit]
+merged1[1:10]
+```
+
+
+```{r}
+## Getting PatientID and all the ICD10 columns (ICD10_1, ICD10_2, and ICD10_3)
+all_ICD10 <- setDT(merged1)[, .(Freq = .N), by = .(PatientID, ICD10_1,ICD10_2,ICD10_3)]
+all_ICD10[1:10] 
+```
+
+
+```{r}
+## Here, I merged all the ICD10 columns into a single column "ICD10" with theri codes
+ID_ICD10 <- pivot_longer(all_ICD10, cols=2:4, names_to = "ICD10_1_2_3", values_to = "ICD10")
+ID_ICD10 <- data.table(ID_ICD10)
+ID_ICD10 <- ID_ICD10[,list(PatientID,ICD10)]
+ID_ICD10[1:10] 
+```
+
+
+
+```{r}
+df.long <- ID_ICD10
+ID_ICD10[ID_ICD10 == ''] <- NA ## Added NA to empty cells and dropped cells with NA values
+new_ID_ICD10 <- ID_ICD10 %>% drop_na()
+new_ID_ICD10[1:10] 
+
+```
+
+```{r}
+## After removing NA values. I got only cells with unique codes (Removed repetative codes for particular patientID)
+unique_ICD10 <- new_ID_ICD10 %>% distinct()
+unique_ICD10 <- unique_ICD10[, ICD10:=as.character(ICD10)]
+unique_ICD10[1:10]
+```
+
+```{r}
+## Combining previous unique_ICD10 with DiseaseMap tables to map ICD10 codes for each patient
+setkey(unique_ICD10,ICD10)
+setkey(disease_map,ICD10)
+merged2 <- unique_ICD10[disease_map]
+order_merged2 <- merged2[order(-PatientID,decreasing=TRUE)]
+order_merged2[1:10]
+```
+
+```{r}
+## Combining Patient table with previous table to map PatientID, ICD10, Condition, and Gender for each patient
+setkey(patient,PatientID)
+setkey(order_merged2,PatientID)
+merged3 <- order_merged2[patient]
+merged3[1:5]
+```
+
+```{r}
+## Getting only Condition and the Gender for each Condition for each patientID
+Only_Condition_Gender <- merged3[,list(Condition,Gender)]
+Only_Condition_Gender[1:10]
+```
+
+```{r}
+## Here, I dropped rows that contain "MISSING" keyword in Gender and blank values in the Condition
+## First added NA to blank columns and dropped rows that has NA values
+nrow(Only_Condition_Gender)
+Only_Condition_Gender <- Only_Condition_Gender[!grepl("MISSING",Only_Condition_Gender$Gender),]
+nrow(Only_Condition_Gender)
+Only_Condition_Gender[Only_Condition_Gender == ''] <- NA
+refined_table <- Only_Condition_Gender %>% drop_na()
+nrow(refined_table)
+```
+
+```{r}
+## Converting final table to a frequency table with proportions using prop.table() function 
+Final_output <- as.table(table(refined_table))
+Final_output <- prop.table(Final_output,1)*100
+Final_result <- as.data.frame.matrix(Final_output)
+names(Final_result)[1] <- "Women" ## Refined output 
+names(Final_result)[2] <- "Men"
+Final_table <- transform(Final_result, All = (Women + Men)) ## New column with combined proportions
+Final_table <- Final_table[, c(2, 1, 3)]
+Final_table
+
+```
+
+### Question 3
+Calculate the mortality rate for every year between 2005 and 2018. Is it generally increasing, or decreasing? Assume patients are only at risk of death as of their first visit (in the outpatient Visit file). Once they have died, they are no longer at risk in subsequent year.
+
+```{r}
+## Loading data
+mortality <- fread("healthcare-data/Mortality.csv") 
+outpatient_visit <- fread("healthcare-data/OutpatientVisit.csv")
+```
+
+```{r}
+## Getting total no of deaths in a year from 2005 to 2018
+order_mortality <- mortality[order(-DateOfDeath,decreasing=TRUE)]
+t1 <- format(order_mortality$DateOfDeath, format = "%Y")
+deaths <- as.data.frame(table(t1))
+names(deaths)[1] <- "Year"
+names(deaths)[2] <- "Deaths"
+deaths
+```
+
+```{r}
+## Getting total popolation in an year from 2005 to 2018
+outpatient_visit <- fread("healthcare-data/OutpatientVisit.csv")
+
+outpatient_visit <- outpatient_visit[,list(PatientID,VisitDate)]
+outpatient_visit$VisitDate <- format(as.Date(outpatient_visit$VisitDate, format="%y/%m/%d"),"%Y")
+cc <- setDT(outpatient_visit)[, .(Freq = .N), by = .(PatientID, VisitDate)]
+bb <- cc[order(-VisitDate,decreasing=TRUE)]
+total_population <- as.data.frame(table(cc$VisitDate))
+names(total_population)[1] <- "Year"
+names(total_population)[2] <- "TotalPopulation"
+total_population
+```
+
+```{r}
+## Combining dataframes
+TotalPopulation <- total_population$TotalPopulation
+final <- cbind(deaths,TotalPopulation)
+final
+```
+
+
+```{r}
+Mortality_rate <- transform(final, MortalityRate = (Deaths / TotalPopulation)*100)
+Mortality_rate
+```
+It was observed that the mortality rate suddenly increased from 2005 to 2007. But, from the year 2009 it has decreased to the lowest value during 2005 to 2018 years.
+
+```{r}
+
+```
+
+```{r}
+
+```
