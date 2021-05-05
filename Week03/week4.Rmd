@@ -1,0 +1,216 @@
+---
+title: "Week04"
+author: "John Reddy Peasari"
+date: "3/1/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading libraries
+```{r include=FALSE}
+library(data.table)
+library(tidyverse)
+library(dplyr)
+library(profvis)
+library(purrr)
+library(foreach)
+```
+
+## Loading data
+```{r}
+df <- read.csv("clinics.csv")
+head(df)
+```
+
+### Function to calculate haversine distance
+```{r}
+ haversine <- function(lat1, lon1, lat2, lon2) {
+   radians <- pi / 180 ## Converting degrees to radians
+   a1 = lat1 * radians
+   a2 = lon1 * radians
+   b1 = lat2 * radians
+   b2 = lon2 * radians
+   dis_lon <- b2 - a2
+   dis_lat <- b1 - a1
+   a <- (sin(dis_lat/2))^2 + cos(a1)*cos(b1)*(sin(dis_lon/2))^2 ## Haversine distance formula
+   c <- 2*atan2(sqrt(a),sqrt(1-a))
+   R <- 6371 ## Earth mean radius
+   distance <- R * c
+   return(distance)
+ }
+
+```
+
+
+### Calculating haversine distance using for loop approach
+
+```{r}
+distance <- c()
+haversine_looping <- function(df) {
+  for(i in 1:nrow(df)) { ## Lopping through each row
+    row <- df[i,]
+    lat2 <- 40.671
+    lon2 <- -73.985
+    lat1 <- row$locLat ## Getting lat value in that specific row
+    lon1 <- row$locLong ## Getting long value in the specific row
+    distance[i] <- haversine(lat1, lon1, lat2, lon2) # Calling haversine function 
+  }
+  return(distance)
+
+}
+haversine_looping(df)
+```
+
+```{r include=FALSE}
+## Profiling R code using profvis
+profvis::profvis({
+distance <- c()
+haversine_looping <- function(df) {
+  for(i in 1:nrow(df)) {
+    row <- df[i,]
+    lat2 <- 40.671
+    lon2 <- -73.985
+    lat1 <- row$locLat
+    lon1 <- row$locLong
+    distance[i] <- haversine(lat1, lon1, lat2, lon2)
+  }
+  return(distance)
+
+}
+haversine_looping(df)
+})
+```
+
+```{r}
+## Returning CPU and other times using system.time()
+distance <- c()
+haversine_looping <- function(df) {
+  for(i in 1:nrow(df)) {
+    row <- df[i,]
+    lat2 <- 40.671
+    lon2 <- -73.985
+    lat1 <- row$locLat
+    lon1 <- row$locLong
+    distance[i] <- haversine(lat1, lon1, lat2, lon2)
+  }
+  return(distance)
+
+}
+system.time(haversine_looping(df))
+```
+
+
+### Calculating haversine distance using foreach loop
+
+```{r}
+## Calculating haversine distance using foreach loop
+foreach(i = 1: nrow(df), .combine = rbind)  %dopar% {
+  row <- df[i,]
+  lat1 <- row$locLat
+  lon1 <- row$locLong
+  lat2 <- 40.671
+  lon2 <- -73.985
+  haversine(lat1, lon1, lat2, lon2)
+}
+```
+
+
+```{r include=FALSE}
+## Profiling R code using profvis
+profvis::profvis({ (foreach(i = 1: nrow(df), .combine = rbind)  %dopar% {
+  row <- df[i,]
+  lat1 <- row$locLat
+  lon1 <- row$locLong
+  lat2 <- 40.671
+  lon2 <- -73.985
+  haversine(lat1, lon1, lat2, lon2)
+})
+})
+```
+
+```{r}
+## Returning CPU and other times using system.time()
+system.time(foreach(i = 1: nrow(df), .combine = rbind)  %dopar% {
+  row <- df[i,]
+  lat1 <- row$locLat
+  lon1 <- row$locLong
+  lat2 <- 40.671
+  lon2 <- -73.985
+  haversine(lat1, lon1, lat2, lon2)
+})
+```
+
+### Calculating haversine distance using apply() function
+
+```{r}
+## Using apply() function to calculate distance with each row values
+f = function(df, output) {
+  lat1 <- as.numeric(df[17])
+  lon1 <- as.numeric(df[18])
+  lat2 <- 40.671
+  lon2 <- -73.985
+  x <- haversine(lat1, lon1, lat2, lon2)
+}
+apply(df, 1, f)
+
+```
+
+```{r include=FALSE}
+## Profiling R code using profvis
+profvis({f = function(df) {
+  lat1 <- as.numeric(df[17])
+  lon1 <- as.numeric(df[18])
+  lat2 <- 40.671
+  lon2 <- -73.985
+  x <- haversine(lat1, lon1, lat2, lon2)
+}
+apply(df, 1, f)
+})
+```
+
+```{r}
+## Returning CPU and other times using system.time()
+f = function(df, output) {
+  lat1 <- as.numeric(df[17])
+  lon1 <- as.numeric(df[18])
+  lat2 <- 40.671
+  lon2 <- -73.985
+  x <- haversine(lat1, lon1, lat2, lon2)
+}
+system.time(apply(df, 1, f))
+```
+
+### Implementing haversine distance using mappply() function
+```{r}
+lat1 <- df[17]
+lon1 <- df[18]
+lat2 <- 40.671
+lon2 <- -73.985
+mapply(haversine,lat1,lon1,lat2,lon2)
+system.time(mapply(haversine,lat1,lon1,lat2,lon2))
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+
+
+
+```
+
+```{r}
+
+```
