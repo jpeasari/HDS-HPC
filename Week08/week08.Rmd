@@ -1,0 +1,446 @@
+---
+title: "Week08_Assignment"
+author: "John Reddy Peasari"
+date: "4/1/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+## Loading the required packages
+library(data.table)
+library(geosphere)
+library(rgdal)
+library(GA)
+library(purrr)
+```
+
+# Brute Force and GA for the fraction 0.00001
+```{r}
+## Load the population data
+pop.data <- data.table::fread("Mo_pop_Sim.csv")
+#str(pop.data)
+frac <- 0.00001
+small.data <- pop.data[sample(1:nrow(pop.data),
+                               size = round(nrow(pop.data) * frac),
+                               replace = F), ## extract a sample of randomlychosen 1% rows
+                        ]  ## and choose all columns
+#head(small.data)
+
+```
+
+```{r}
+## Load the FQHC data
+data_path <- 'Uploads-week-8'
+fqhc.data <- data.table(as.data.frame(readOGR(data_path,
+                     'MO_2018_Federally_Qualified_Health_Center_Locations')))
+#str(fqhc.data)
+## Select a subset of 4 rows, drawn at random, and cols: OBJECTID, Long, Lat
+set.seed(8888)
+no.ctrs = 8
+sites.dt <- fqhc.data[sample(1:nrow(fqhc.data), no.ctrs, replace = F),
+                      list(OBJECTID = as.character(OBJECTID),
+                           Longitude,
+                           Latitude)]
+#head(sites.dt)
+```
+
+```{r}
+## Create combinations of residences and centers
+small.data <- cbind(small.data, resid = c(1:nrow(small.data)))
+setkey(small.data, resid)
+#head(small.data)
+
+dist.dt <- data.table(CJ(as.character(small.data$resid),
+                         as.character(sites.dt$OBJECTID)))
+names(dist.dt)
+setnames(dist.dt, c("V1", "V2"), c("resid", "OBJECTID"))
+#str(dist.dt)
+#head(dist.dt)
+```
+
+```{r}
+
+## Compute distances on a small subset of values - this takes a long time
+# if run on all rows in the dataset
+v <- map_dbl(1:nrow(dist.dt),
+        function(rid){
+          r.rsd <- small.data[resid == dist.dt[rid,resid]]
+          r.fqhc <- fqhc.data[OBJECTID == as.character(dist.dt[rid,OBJECTID])]
+
+          distm(c(r.rsd$long, r.rsd$lat),
+                c(r.fqhc$Longitude, r.fqhc$Latitude),
+                fun = distHaversine)
+
+          ## note that the above distance is in meters
+          ## convert it to miles
+        })
+
+dist.dt[, distance := v]
+head(dist.dt)
+```
+
+```{r}
+## Next, use the distance information to make decisions on, let's say top 2 centers
+## The function combn() produces all possible combinations of elements in x, taking m at a time
+## If we want to take all possible combinations of 2 items, out of a set of 4...
+#combn(4, 2)
+## the combinations are in columns; a simpler-to-read format is to show them in rows
+#t(combn(x=1:4,m = 2)) ## transpose the results using t()
+
+## If we want to identify the two best centers, out of four, for providing the extended services
+## we need identify the two best ones based on, say, the total average distance between each of them
+## and each residence in our sample.
+#unique(sites.dt$OBJECTID)
+## Build combinations
+combinations <- data.table(as.data.frame(t(combn(unique(sites.dt$OBJECTID), 2))))
+names(combinations) <- c("loc1", "loc2")
+##
+meandists <- dist.dt[, mean(distance), by=OBJECTID]
+ind = 1
+
+get_combined_distance <- function(loc1, loc2, ctr.id){
+
+}
+map_dbl(1:nrow(combinations),
+        function(ind){
+          mean(c(meandists[meandists$OBJECTID == combinations[ind,loc1]]$V1,
+                 meandists[meandists$OBJECTID == combinations[ind,loc2]]$V1))
+        })
+
+combinations[, meandist :=
+               map_dbl(1:nrow(combinations),
+                       function(ind){
+                         mean(c(meandists[meandists$OBJECTID == combinations[ind,loc1]]$V1,
+                                meandists[meandists$OBJECTID == combinations[ind,loc2]]$V1))
+                       })]
+## Find the best one - this is the brute-force approach
+combinations[meandist == min(combinations$meandist)]
+```
+
+```{r}
+p <- rep(1, length(unique(dist.dt$OBJECTID)))
+w <- dist.dt[,mean(distance), by = OBJECTID]$V1
+W <- max(w) * 1.14
+knapsack <- function(x){
+  f <- sum(x*p)
+  penalty <- sum(w) * abs(sum(x*w) - max(W))
+  (f - penalty)
+}
+gamodel <- ga(type = "binary",
+              fitness = knapsack,
+              nBits = length(w))
+
+
+## Brute-force approach
+combinations[meandist == min(combinations$meandist)]
+## Genetic algorithm based approach
+summary(gamodel)
+unique(dist.dt$OBJECTID)
+
+```
+
+# Brute Force and GA for the fraction 0.0001
+```{r}
+## Load the population data
+pop.data <- data.table::fread("Mo_pop_Sim.csv")
+#str(pop.data)
+frac <- 0.0001
+small.data <- pop.data[sample(1:nrow(pop.data),
+                               size = round(nrow(pop.data) * frac),
+                               replace = F), ## extract a sample of randomlychosen 1% rows
+                        ]  ## and choose all columns
+#head(small.data)
+
+```
+
+```{r}
+## Load the FQHC data
+data_path <- 'Uploads-week-8'
+fqhc.data <- data.table(as.data.frame(readOGR(data_path,
+                     'MO_2018_Federally_Qualified_Health_Center_Locations')))
+#str(fqhc.data)
+## Select a subset of 4 rows, drawn at random, and cols: OBJECTID, Long, Lat
+set.seed(8888)
+no.ctrs = 8
+sites.dt <- fqhc.data[sample(1:nrow(fqhc.data), no.ctrs, replace = F),
+                      list(OBJECTID = as.character(OBJECTID),
+                           Longitude,
+                           Latitude)]
+#head(sites.dt)
+```
+
+```{r}
+## Create combinations of residences and centers
+small.data <- cbind(small.data, resid = c(1:nrow(small.data)))
+setkey(small.data, resid)
+#head(small.data)
+
+dist.dt <- data.table(CJ(as.character(small.data$resid),
+                         as.character(sites.dt$OBJECTID)))
+names(dist.dt)
+setnames(dist.dt, c("V1", "V2"), c("resid", "OBJECTID"))
+#str(dist.dt)
+#head(dist.dt)
+```
+
+```{r}
+
+## Compute distances on a small subset of values - this takes a long time
+# if run on all rows in the dataset
+v <- map_dbl(1:nrow(dist.dt),
+        function(rid){
+          r.rsd <- small.data[resid == dist.dt[rid,resid]]
+          r.fqhc <- fqhc.data[OBJECTID == as.character(dist.dt[rid,OBJECTID])]
+
+          distm(c(r.rsd$long, r.rsd$lat),
+                c(r.fqhc$Longitude, r.fqhc$Latitude),
+                fun = distHaversine)
+
+          ## note that the above distance is in meters
+          ## convert it to miles
+        })
+
+dist.dt[, distance := v]
+head(dist.dt)
+```
+
+```{r}
+## Next, use the distance information to make decisions on, let's say top 2 centers
+## The function combn() produces all possible combinations of elements in x, taking m at a time
+## If we want to take all possible combinations of 2 items, out of a set of 4...
+#combn(4, 2)
+## the combinations are in columns; a simpler-to-read format is to show them in rows
+#t(combn(x=1:4,m = 2)) ## transpose the results using t()
+
+## If we want to identify the two best centers, out of four, for providing the extended services
+## we need identify the two best ones based on, say, the total average distance between each of them
+## and each residence in our sample.
+#unique(sites.dt$OBJECTID)
+## Build combinations
+combinations <- data.table(as.data.frame(t(combn(unique(sites.dt$OBJECTID), 2))))
+names(combinations) <- c("loc1", "loc2")
+##
+meandists <- dist.dt[, mean(distance), by=OBJECTID]
+ind = 1
+
+get_combined_distance <- function(loc1, loc2, ctr.id){
+
+}
+map_dbl(1:nrow(combinations),
+        function(ind){
+          mean(c(meandists[meandists$OBJECTID == combinations[ind,loc1]]$V1,
+                 meandists[meandists$OBJECTID == combinations[ind,loc2]]$V1))
+        })
+
+combinations[, meandist :=
+               map_dbl(1:nrow(combinations),
+                       function(ind){
+                         mean(c(meandists[meandists$OBJECTID == combinations[ind,loc1]]$V1,
+                                meandists[meandists$OBJECTID == combinations[ind,loc2]]$V1))
+                       })]
+## Find the best one - this is the brute-force approach
+combinations[meandist == min(combinations$meandist)]
+```
+
+```{r}
+p <- rep(1, length(unique(dist.dt$OBJECTID)))
+w <- dist.dt[,mean(distance), by = OBJECTID]$V1
+W <- max(w) * 1.14
+knapsack <- function(x){
+  f <- sum(x*p)
+  penalty <- sum(w) * abs(sum(x*w) - max(W))
+  (f - penalty)
+}
+gamodel <- ga(type = "binary",
+              fitness = knapsack,
+              nBits = length(w))
+
+
+## Brute-force approach
+combinations[meandist == min(combinations$meandist)]
+## Genetic algorithm based approach
+summary(gamodel)
+unique(dist.dt$OBJECTID)
+
+```
+
+
+# Brute Force and GA for the fraction 0.0001
+
+```{r}
+## Load the population data
+pop.data <- data.table::fread("Mo_pop_Sim.csv")
+#str(pop.data)
+frac <- 0.001
+small.data <- pop.data[sample(1:nrow(pop.data),
+                               size = round(nrow(pop.data) * frac),
+                               replace = F), ## extract a sample of randomlychosen 1% rows
+                        ]  ## and choose all columns
+#head(small.data)
+
+```
+
+```{r}
+## Load the FQHC data
+data_path <- 'Uploads-week-8'
+fqhc.data <- data.table(as.data.frame(readOGR(data_path,
+                     'MO_2018_Federally_Qualified_Health_Center_Locations')))
+#str(fqhc.data)
+## Select a subset of 4 rows, drawn at random, and cols: OBJECTID, Long, Lat
+set.seed(8888)
+no.ctrs = 8
+sites.dt <- fqhc.data[sample(1:nrow(fqhc.data), no.ctrs, replace = F),
+                      list(OBJECTID = as.character(OBJECTID),
+                           Longitude,
+                           Latitude)]
+#head(sites.dt)
+```
+
+```{r}
+## Create combinations of residences and centers
+small.data <- cbind(small.data, resid = c(1:nrow(small.data)))
+setkey(small.data, resid)
+#head(small.data)
+
+dist.dt <- data.table(CJ(as.character(small.data$resid),
+                         as.character(sites.dt$OBJECTID)))
+names(dist.dt)
+setnames(dist.dt, c("V1", "V2"), c("resid", "OBJECTID"))
+#str(dist.dt)
+#head(dist.dt)
+```
+
+```{r}
+
+## Compute distances on a small subset of values - this takes a long time
+# if run on all rows in the dataset
+v <- map_dbl(1:nrow(dist.dt),
+        function(rid){
+          r.rsd <- small.data[resid == dist.dt[rid,resid]]
+          r.fqhc <- fqhc.data[OBJECTID == as.character(dist.dt[rid,OBJECTID])]
+
+          distm(c(r.rsd$long, r.rsd$lat),
+                c(r.fqhc$Longitude, r.fqhc$Latitude),
+                fun = distHaversine)
+
+          ## note that the above distance is in meters
+          ## convert it to miles
+        })
+
+dist.dt[, distance := v]
+head(dist.dt)
+```
+
+```{r}
+## Next, use the distance information to make decisions on, let's say top 2 centers
+## The function combn() produces all possible combinations of elements in x, taking m at a time
+## If we want to take all possible combinations of 2 items, out of a set of 4...
+#combn(4, 2)
+## the combinations are in columns; a simpler-to-read format is to show them in rows
+#t(combn(x=1:4,m = 2)) ## transpose the results using t()
+
+## If we want to identify the two best centers, out of four, for providing the extended services
+## we need identify the two best ones based on, say, the total average distance between each of them
+## and each residence in our sample.
+#unique(sites.dt$OBJECTID)
+## Build combinations
+combinations <- data.table(as.data.frame(t(combn(unique(sites.dt$OBJECTID), 2))))
+names(combinations) <- c("loc1", "loc2")
+##
+meandists <- dist.dt[, mean(distance), by=OBJECTID]
+ind = 1
+
+get_combined_distance <- function(loc1, loc2, ctr.id){
+
+}
+map_dbl(1:nrow(combinations),
+        function(ind){
+          mean(c(meandists[meandists$OBJECTID == combinations[ind,loc1]]$V1,
+                 meandists[meandists$OBJECTID == combinations[ind,loc2]]$V1))
+        })
+
+combinations[, meandist :=
+               map_dbl(1:nrow(combinations),
+                       function(ind){
+                         mean(c(meandists[meandists$OBJECTID == combinations[ind,loc1]]$V1,
+                                meandists[meandists$OBJECTID == combinations[ind,loc2]]$V1))
+                       })]
+## Find the best one - this is the brute-force approach
+combinations[meandist == min(combinations$meandist)]
+```
+
+```{r}
+p <- rep(1, length(unique(dist.dt$OBJECTID)))
+w <- dist.dt[,mean(distance), by = OBJECTID]$V1
+W <- max(w) * 1.14
+knapsack <- function(x){
+  f <- sum(x*p)
+  penalty <- sum(w) * abs(sum(x*w) - max(W))
+  (f - penalty)
+}
+gamodel <- ga(type = "binary",
+              fitness = knapsack,
+              nBits = length(w))
+
+
+## Brute-force approach
+combinations[meandist == min(combinations$meandist)]
+## Genetic algorithm based approach
+summary(gamodel)
+unique(dist.dt$OBJECTID)
+
+```
+### Used avarage closeness from the residences to the health care services. Locations that are closest to all the residences are assumed to be selected
+# Fitness Function
+## Initially, profit vector (p) was initialized with all ones
+## Mean distance was used as the weights
+## Fitness function was defined by penalizing the objective function f with the penalty value
+## Here, binary GA metric was used
+## W <- max(w) * 1.14 was found to be the optimal value where the GA approach was same
+## as the Brute FOrce approach
+
+# For the fraction frac=0.00001 and n.ctrs=8
+
+## GA based
+###   x1 x2 x3 x4 x5 x6 x7 x8
+###    0  1  0  1  0  0  0  0
+### "119" "12"  "132" "193" "60"  "64"  "67"  "95"
+
+## Brute FOrce approach
+### loc1 loc2 meandist
+###  193   12 196469.3
+
+
+# For the fraction frac=0.0001 and n.ctrs=8 (increased dataset values)
+## GA based
+### x1 x2 x3 x4 x5 x6 x7 x8
+### 0  1  0  1  0  0  0  0
+### "119" "12"  "132" "193" "60"  "64"  "67"  "95"
+
+
+## Brute FOrce approach
+### loc1 loc2 meandist
+### 193   12   174485
+
+# For the fraction frac=0.001 and n.ctrs=8 (increased dataset values)
+## GA based
+### x1 x2 x3 x4 x5 x6 x7 x8
+### 0  1  0  1  0  0  0  0
+### "119" "12"  "132" "193" "60"  "64"  "67"  "95"
+
+## Brute FOrce approach
+### loc1 loc2 meandist
+### 193   12 175688.1
+
+```{r}
+##
+```
+
+
+
